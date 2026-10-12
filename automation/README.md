@@ -28,7 +28,7 @@ jobs:
 ```
 
 ### Labeler
-Requires a `.github/automation-labeler.yml` file in the caller repo.
+Requires a `.github/labeler.yml` file in the caller repo.
 ```yaml
 name: Labeler
 on: pull_request_target
