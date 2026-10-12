@@ -1,0 +1,60 @@
+name: Python CI
+
+# Installs dependencies and runs an optional lint command and a test command.
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: "Python version passed to actions/setup-python."
+        type: string
+        default: "3.x"
+      working-directory:
+        type: string
+        default: .
+      cache-dependency-path:
+        description: "Dependency file(s) used as the pip cache key. Empty uses the default lookup."
+        type: string
+        default: ""
+      install-command:
+        type: string
+        default: python -m pip install -r requirements.txt
+      lint-command:
+        description: "Lint command. Empty skips linting."
+        type: string
+        default: ""
+      test-command:
+        description: "Test command. Empty skips testing."
+        type: string
+        default: python -m pytest
+
+permissions: {}
+
+jobs:
+  ci:
+    name: Python CI
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: pip
+          cache-dependency-path: ${{ inputs.cache-dependency-path }}
+
+      - name: Install dependencies
+        run: ${{ inputs.install-command }}
+
+      - name: Lint
+        if: inputs.lint-command != ''
+        run: ${{ inputs.lint-command }}
+
+      - name: Test
+        if: inputs.test-command != ''
+        run: ${{ inputs.test-command }}

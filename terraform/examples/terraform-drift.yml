@@ -1,0 +1,20 @@
+name: Terraform Drift
+
+on:
+  schedule:
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+
+jobs:
+  drift:
+    permissions:
+      contents: read
+      id-token: write
+      issues: write
+    uses: OWNER/gha-shared-workflows/.github/workflows/terraform-drift.yml@v1
+    with:
+      working-directory: infra
+      terraform-version: "1.9.8"
+      cloud-provider: aws
+      aws-role-arn: arn:aws:iam::123456789012:role/terraform-plan
+      aws-region: eu-west-1

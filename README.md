@@ -4,93 +4,36 @@ A collection of reusable GitHub Actions workflows meant to be called from other 
 
 Reference them by version tag (`@v1`), not `@main`, so that a change here does not break every repo at once.
 
-## PR / repo automation
+## Layout
 
-| Workflow | Purpose | Caller trigger |
-| --- | --- | --- |
-| [`pr-title-lint.yml`](.github/workflows/pr-title-lint.yml) | Validate PR titles (Conventional Commits) | `pull_request_target` |
-| [`labeler.yml`](.github/workflows/labeler.yml) | Label PRs automatically by changed paths | `pull_request_target` |
-| [`stale.yml`](.github/workflows/stale.yml) | Mark and close inactive issues and PRs | `schedule`, `workflow_dispatch` |
-| [`auto-merge-dependabot.yml`](.github/workflows/auto-merge-dependabot.yml) | Approve and auto-merge Dependabot PRs | `pull_request` |
-| [`sync-labels.yml`](.github/workflows/sync-labels.yml) | Sync repo labels with a definition file | `push`, `workflow_dispatch` |
+GitHub only loads workflows from `.github/workflows/` and does not support subfolders, so workflow files stay flat there and are grouped by filename prefix. Each group has a folder with its own documentation and examples.
 
-## Usage examples
+| Group | Prefix | Docs and examples | Workflows |
+| --- | --- | --- | --- |
+| PR and repo automation | `automation-` | [`automation/`](automation/README.md) | PR title lint, labeler, stale, Dependabot auto-merge, label sync |
+| CI | `ci-` | [`ci/`](ci/README.md) | Node, Python, Go, Docker build and push |
+| Terraform | `terraform-` | [`terraform/`](terraform/README.md) | validate, security scan, plan, apply, drift, destroy |
 
-### PR title lint
-```yaml
-name: PR Title
-on:
-  pull_request_target:
-    types: [opened, edited, synchronize, reopened]
-jobs:
-  lint:
-    permissions:
-      pull-requests: read
-    uses: OWNER/gha-shared-workflows/.github/workflows/pr-title-lint.yml@v1
-    with:
-      require-scope: false
+```
+.github/workflows/
+  automation-*.yml
+  ci-*.yml
+  terraform-*.yml
+automation/   README.md
+ci/           README.md
+terraform/    README.md, examples/
 ```
 
-### Labeler
-Requires a `.github/labeler.yml` file in the caller repo.
+## Calling a workflow
+
 ```yaml
-name: Labeler
-on: pull_request_target
 jobs:
-  label:
+  ci:
     permissions:
       contents: read
-      pull-requests: write
-    uses: OWNER/gha-shared-workflows/.github/workflows/labeler.yml@v1
-```
-
-### Stale
-```yaml
-name: Stale
-on:
-  schedule:
-    - cron: "0 3 * * *"
-  workflow_dispatch:
-jobs:
-  stale:
-    permissions:
-      issues: write
-      pull-requests: write
-    uses: OWNER/gha-shared-workflows/.github/workflows/stale.yml@v1
+    uses: OWNER/gha-shared-workflows/.github/workflows/ci-node.yml@v1
     with:
-      days-before-stale: 30
-```
-
-### Auto-merge Dependabot
-Enable "Allow auto-merge" and required status checks in the caller repo.
-```yaml
-name: Dependabot
-on: pull_request
-jobs:
-  auto-merge:
-    permissions:
-      contents: write
-      pull-requests: write
-    uses: OWNER/gha-shared-workflows/.github/workflows/auto-merge-dependabot.yml@v1
-    with:
-      allowed-update-types: patch,minor
-```
-
-### Sync labels
-Requires a `.github/labels.yml` file (`crazy-max/ghaction-github-labeler` format) in the caller repo.
-```yaml
-name: Sync Labels
-on:
-  push:
-    branches: [main]
-    paths: [.github/labels.yml]
-  workflow_dispatch:
-jobs:
-  sync:
-    permissions:
-      contents: read
-      issues: write
-    uses: OWNER/gha-shared-workflows/.github/workflows/sync-labels.yml@v1
+      package-manager: pnpm
 ```
 
 ## Notes

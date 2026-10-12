@@ -1,0 +1,208 @@
+name: Terraform Plan
+
+# Runs a plan with OIDC credentials and posts it to the pull request.
+# Read-only: it never applies. Use a separate role with read permissions where possible.
+# Pull requests from forks have no OIDC token and cannot run this workflow.
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: "Directory containing the Terraform root module."
+        type: string
+        default: .
+      terraform-version:
+        description: "Terraform version for hashicorp/setup-terraform. Pin an exact version for reproducible runs."
+        type: string
+        default: latest
+      init-args:
+        description: "Extra arguments for terraform init, e.g. -backend-config=prod.hcl."
+        type: string
+        default: ""
+
+      plan-args:
+        description: "Extra arguments for terraform plan, e.g. -var-file=prod.tfvars."
+        type: string
+        default: ""
+
+      cloud-provider:
+        description: "OIDC authentication to use before running Terraform: none | aws | gcp | azure."
+        type: string
+        default: none
+      aws-role-arn:
+        description: "AWS IAM role to assume through OIDC (cloud-provider: aws)."
+        type: string
+        default: ""
+      aws-region:
+        description: "AWS region (cloud-provider: aws)."
+        type: string
+        default: ""
+      gcp-workload-identity-provider:
+        description: "Full resource name of the workload identity provider (cloud-provider: gcp)."
+        type: string
+        default: ""
+      gcp-service-account:
+        description: "Service account email to impersonate (cloud-provider: gcp)."
+        type: string
+        default: ""
+      azure-client-id:
+        description: "Azure app registration client ID (cloud-provider: azure)."
+        type: string
+        default: ""
+      azure-tenant-id:
+        description: "Azure tenant ID (cloud-provider: azure)."
+        type: string
+        default: ""
+      azure-subscription-id:
+        description: "Azure subscription ID (cloud-provider: azure)."
+        type: string
+        default: ""
+
+      comment:
+        description: "Post the plan as a pull request comment."
+        type: boolean
+        default: true
+      artifact-name:
+        description: "Name of the uploaded plan artifact."
+        type: string
+        default: tfplan
+    secrets:
+      tf-api-token:
+        description: "Terraform Cloud / Enterprise API token."
+        required: false
+    outputs:
+      has-changes:
+        description: "true when the plan contains changes."
+        value: ${{ jobs.plan.outputs.has-changes }}
+
+permissions: {}
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    outputs:
+      has-changes: ${{ steps.plan.outputs.has-changes }}
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "0"
+      ARM_USE_OIDC: ${{ inputs.cloud-provider == 'azure' }}
+      ARM_CLIENT_ID: ${{ inputs.azure-client-id }}
+      ARM_TENANT_ID: ${{ inputs.azure-tenant-id }}
+      ARM_SUBSCRIPTION_ID: ${{ inputs.azure-subscription-id }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Authenticate to AWS
+        if: inputs.cloud-provider == 'aws'
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ inputs.aws-role-arn }}
+          aws-region: ${{ inputs.aws-region }}
+          role-session-name: gha-terraform-${{ github.run_id }}
+
+      - name: Authenticate to Google Cloud
+        if: inputs.cloud-provider == 'gcp'
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ inputs.gcp-workload-identity-provider }}
+          service_account: ${{ inputs.gcp-service-account }}
+
+      - name: Authenticate to Azure
+        if: inputs.cloud-provider == 'azure'
+        uses: azure/login@v3
+        with:
+          client-id: ${{ inputs.azure-client-id }}
+          tenant-id: ${{ inputs.azure-tenant-id }}
+          subscription-id: ${{ inputs.azure-subscription-id }}
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ inputs.terraform-version }}
+          cli_config_credentials_token: ${{ secrets.tf-api-token }}
+          terraform_wrapper: false
+
+      - name: Init
+        env:
+          INIT_ARGS: ${{ inputs.init-args }}
+        run: terraform init -input=false $INIT_ARGS
+      - name: Plan
+        id: plan
+        env:
+          PLAN_ARGS: ${{ inputs.plan-args }}
+        run: |
+          set +e
+          terraform plan -input=false -lock-timeout=5m -detailed-exitcode -out=tfplan $PLAN_ARGS
+          code=$?
+          set -e
+          case "$code" in
+            0) echo "has-changes=false" >> "$GITHUB_OUTPUT" ;;
+            2) echo "has-changes=true" >> "$GITHUB_OUTPUT" ;;
+            *) exit "$code" ;;
+          esac
+
+      - name: Render plan
+        if: steps.plan.outputs.has-changes == 'true'
+        env:
+          WORKDIR: ${{ inputs.working-directory }}
+        run: |
+          terraform show -no-color tfplan > plan.txt
+          sha256sum tfplan > tfplan.sha256
+          {
+            echo "### Terraform plan ($WORKDIR)"
+            echo '<details><summary>Show plan</summary>'
+            echo
+            echo '```'
+            head -c 60000 plan.txt
+            echo '```'
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment plan on PR
+        if: inputs.comment && github.event_name == 'pull_request'
+        uses: actions/github-script@v9
+        env:
+          WORKDIR: ${{ inputs.working-directory }}
+          HAS_CHANGES: ${{ steps.plan.outputs.has-changes }}
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const marker = `<!-- terraform-plan:${process.env.WORKDIR} -->`;
+            let body;
+            if (process.env.HAS_CHANGES === 'true') {
+              const file = path.join(process.env.WORKDIR, 'plan.txt');
+              let plan = fs.readFileSync(file, 'utf8');
+              if (plan.length > 60000) plan = plan.slice(0, 60000) + '\n... (truncated, see the job summary)';
+              body = `${marker}\n### Terraform plan: \`${process.env.WORKDIR}\`\n<details><summary>Show plan</summary>\n\n\`\`\`\n${plan}\n\`\`\`\n</details>`;
+            } else {
+              body = `${marker}\n### Terraform plan: \`${process.env.WORKDIR}\`\nNo changes. Infrastructure matches the configuration.`;
+            }
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number });
+            const existing = comments.find(c => c.body && c.body.startsWith(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
+
+      - name: Upload plan
+        if: steps.plan.outputs.has-changes == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: |
+            ${{ format('{0}/tfplan', inputs.working-directory) }}
+            ${{ format('{0}/tfplan.sha256', inputs.working-directory) }}
+          retention-days: 1
+          if-no-files-found: error

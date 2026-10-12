@@ -1,0 +1,39 @@
+name: Terraform PR
+
+on:
+  pull_request:
+    paths:
+      - "infra/**"
+
+jobs:
+  validate:
+    permissions:
+      contents: read
+    uses: OWNER/gha-shared-workflows/.github/workflows/terraform-validate.yml@v1
+    with:
+      working-directory: infra
+      terraform-version: "1.9.8"
+
+  security:
+    permissions:
+      contents: read
+      security-events: write
+    uses: OWNER/gha-shared-workflows/.github/workflows/terraform-security.yml@v1
+    with:
+      working-directory: infra
+
+  plan:
+    needs: [validate, security]
+    # Forks have no OIDC token, so plan only runs for branches in this repo.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    uses: OWNER/gha-shared-workflows/.github/workflows/terraform-plan.yml@v1
+    with:
+      working-directory: infra
+      terraform-version: "1.9.8"
+      cloud-provider: aws
+      aws-role-arn: arn:aws:iam::123456789012:role/terraform-plan
+      aws-region: eu-west-1

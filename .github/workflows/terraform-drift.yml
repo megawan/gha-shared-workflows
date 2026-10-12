@@ -1,0 +1,215 @@
+name: Terraform Drift Detection
+
+# Plans on a schedule and reports differences between the code and real infrastructure
+# as a GitHub issue. Never applies. Callers typically use `schedule` and `workflow_dispatch`.
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: "Directory containing the Terraform root module."
+        type: string
+        default: .
+      terraform-version:
+        description: "Terraform version for hashicorp/setup-terraform. Pin an exact version for reproducible runs."
+        type: string
+        default: latest
+      init-args:
+        description: "Extra arguments for terraform init, e.g. -backend-config=prod.hcl."
+        type: string
+        default: ""
+
+      plan-args:
+        description: "Extra arguments for terraform plan, e.g. -var-file=prod.tfvars."
+        type: string
+        default: ""
+
+      cloud-provider:
+        description: "OIDC authentication to use before running Terraform: none | aws | gcp | azure."
+        type: string
+        default: none
+      aws-role-arn:
+        description: "AWS IAM role to assume through OIDC (cloud-provider: aws)."
+        type: string
+        default: ""
+      aws-region:
+        description: "AWS region (cloud-provider: aws)."
+        type: string
+        default: ""
+      gcp-workload-identity-provider:
+        description: "Full resource name of the workload identity provider (cloud-provider: gcp)."
+        type: string
+        default: ""
+      gcp-service-account:
+        description: "Service account email to impersonate (cloud-provider: gcp)."
+        type: string
+        default: ""
+      azure-client-id:
+        description: "Azure app registration client ID (cloud-provider: azure)."
+        type: string
+        default: ""
+      azure-tenant-id:
+        description: "Azure tenant ID (cloud-provider: azure)."
+        type: string
+        default: ""
+      azure-subscription-id:
+        description: "Azure subscription ID (cloud-provider: azure)."
+        type: string
+        default: ""
+
+      create-issue:
+        description: "Open or update an issue when drift is detected, and close it when resolved."
+        type: boolean
+        default: true
+      issue-label:
+        description: "Label applied to drift issues."
+        type: string
+        default: terraform-drift
+      fail-on-drift:
+        description: "Fail the job when drift is detected."
+        type: boolean
+        default: false
+    secrets:
+      tf-api-token:
+        description: "Terraform Cloud / Enterprise API token."
+        required: false
+    outputs:
+      drift:
+        description: "true when drift was detected."
+        value: ${{ jobs.drift.outputs.drift }}
+
+permissions: {}
+
+jobs:
+  drift:
+    name: Detect drift
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      issues: write
+    outputs:
+      drift: ${{ steps.plan.outputs.has-changes }}
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "0"
+      ARM_USE_OIDC: ${{ inputs.cloud-provider == 'azure' }}
+      ARM_CLIENT_ID: ${{ inputs.azure-client-id }}
+      ARM_TENANT_ID: ${{ inputs.azure-tenant-id }}
+      ARM_SUBSCRIPTION_ID: ${{ inputs.azure-subscription-id }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Authenticate to AWS
+        if: inputs.cloud-provider == 'aws'
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ inputs.aws-role-arn }}
+          aws-region: ${{ inputs.aws-region }}
+          role-session-name: gha-terraform-${{ github.run_id }}
+
+      - name: Authenticate to Google Cloud
+        if: inputs.cloud-provider == 'gcp'
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ inputs.gcp-workload-identity-provider }}
+          service_account: ${{ inputs.gcp-service-account }}
+
+      - name: Authenticate to Azure
+        if: inputs.cloud-provider == 'azure'
+        uses: azure/login@v3
+        with:
+          client-id: ${{ inputs.azure-client-id }}
+          tenant-id: ${{ inputs.azure-tenant-id }}
+          subscription-id: ${{ inputs.azure-subscription-id }}
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ inputs.terraform-version }}
+          cli_config_credentials_token: ${{ secrets.tf-api-token }}
+          terraform_wrapper: false
+
+      - name: Init
+        env:
+          INIT_ARGS: ${{ inputs.init-args }}
+        run: terraform init -input=false $INIT_ARGS
+      - name: Plan
+        id: plan
+        env:
+          PLAN_ARGS: ${{ inputs.plan-args }}
+        run: |
+          set +e
+          terraform plan -input=false -lock-timeout=5m -detailed-exitcode -out=tfplan $PLAN_ARGS
+          code=$?
+          set -e
+          case "$code" in
+            0) echo "has-changes=false" >> "$GITHUB_OUTPUT" ;;
+            2) echo "has-changes=true" >> "$GITHUB_OUTPUT" ;;
+            *) exit "$code" ;;
+          esac
+
+      - name: Render plan
+        if: steps.plan.outputs.has-changes == 'true'
+        env:
+          WORKDIR: ${{ inputs.working-directory }}
+        run: |
+          terraform show -no-color tfplan > plan.txt
+          sha256sum tfplan > tfplan.sha256
+          {
+            echo "### Terraform plan ($WORKDIR)"
+            echo '<details><summary>Show plan</summary>'
+            echo
+            echo '```'
+            head -c 60000 plan.txt
+            echo '```'
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report drift
+        if: inputs.create-issue
+        uses: actions/github-script@v9
+        env:
+          WORKDIR: ${{ inputs.working-directory }}
+          HAS_CHANGES: ${{ steps.plan.outputs.has-changes }}
+          LABEL: ${{ inputs.issue-label }}
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const { owner, repo } = context.repo;
+            const workdir = process.env.WORKDIR;
+            const label = process.env.LABEL;
+            const title = `Terraform drift detected: ${workdir}`;
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const open = await github.paginate(github.rest.issues.listForRepo, {
+              owner, repo, state: 'open', labels: label, per_page: 100,
+            });
+            const existing = open.find(i => i.title === title);
+            if (process.env.HAS_CHANGES === 'true') {
+              let plan = fs.readFileSync(path.join(workdir, 'plan.txt'), 'utf8');
+              if (plan.length > 60000) plan = plan.slice(0, 60000) + '\n... (truncated, see the run)';
+              const body = `Drift detected in \`${workdir}\` ([run](${runUrl})).\n\n<details><summary>Plan</summary>\n\n\`\`\`\n${plan}\n\`\`\`\n</details>`;
+              if (existing) {
+                await github.rest.issues.createComment({ owner, repo, issue_number: existing.number, body });
+              } else {
+                await github.rest.issues.create({ owner, repo, title, body, labels: [label] });
+              }
+            } else if (existing) {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: existing.number,
+                body: `No drift detected anymore ([run](${runUrl})). Closing.`,
+              });
+              await github.rest.issues.update({ owner, repo, issue_number: existing.number, state: 'closed' });
+            }
+
+      - name: Fail on drift
+        if: inputs.fail-on-drift && steps.plan.outputs.has-changes == 'true'
+        env:
+          WORKDIR: ${{ inputs.working-directory }}
+        run: |
+          echo "::error::Drift detected in $WORKDIR"
+          exit 1
