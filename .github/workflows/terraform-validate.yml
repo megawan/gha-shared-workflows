@@ -1,0 +1,67 @@
+name: Terraform Validate
+
+# Static checks that need no cloud credentials: fmt, validate and TFLint.
+# Safe to run on pull requests from forks.
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: "Directory containing the Terraform root module."
+        type: string
+        default: .
+      terraform-version:
+        description: "Terraform version for hashicorp/setup-terraform. Pin an exact version for reproducible runs."
+        type: string
+        default: latest
+
+      tflint:
+        description: "Run TFLint."
+        type: boolean
+        default: true
+      tflint-version:
+        description: "TFLint version."
+        type: string
+        default: latest
+
+permissions: {}
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ inputs.terraform-version }}
+          terraform_wrapper: false
+
+      - name: Format check
+        run: terraform fmt -check -recursive -diff
+
+      - name: Init (no backend)
+        run: terraform init -backend=false -input=false
+
+      - name: Validate
+        run: terraform validate
+
+      - uses: terraform-linters/setup-tflint@v6
+        if: inputs.tflint
+        with:
+          tflint_version: ${{ inputs.tflint-version }}
+
+      - name: TFLint
+        if: inputs.tflint
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          tflint --init
+          tflint --recursive --format compact

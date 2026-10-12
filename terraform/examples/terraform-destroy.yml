@@ -1,0 +1,24 @@
+name: Terraform Destroy
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: "Type 'destroy' to confirm"
+        required: true
+
+jobs:
+  destroy:
+    permissions:
+      contents: read
+      id-token: write
+    uses: OWNER/gha-shared-workflows/.github/workflows/terraform-destroy.yml@v1
+    with:
+      working-directory: infra
+      terraform-version: "1.9.8"
+      confirmation: ${{ inputs.confirmation }}
+      environment: production-destroy
+      cloud-provider: aws
+      aws-region: eu-west-1
+      plan-aws-role-arn: arn:aws:iam::123456789012:role/terraform-plan
+      aws-role-arn: arn:aws:iam::123456789012:role/terraform-apply

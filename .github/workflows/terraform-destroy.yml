@@ -1,0 +1,288 @@
+name: Terraform Destroy
+
+# Destroys all resources of a root module. Intentionally strict: requires a typed
+# confirmation, an allowed ref, and an approval-gated environment.
+# Callers should expose this only through `workflow_dispatch`.
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: "Directory containing the Terraform root module."
+        type: string
+        default: .
+      terraform-version:
+        description: "Terraform version for hashicorp/setup-terraform. Pin an exact version for reproducible runs."
+        type: string
+        default: latest
+      init-args:
+        description: "Extra arguments for terraform init, e.g. -backend-config=prod.hcl."
+        type: string
+        default: ""
+
+      plan-args:
+        description: "Extra arguments for terraform plan, e.g. -var-file=prod.tfvars."
+        type: string
+        default: ""
+
+      cloud-provider:
+        description: "OIDC authentication to use before running Terraform: none | aws | gcp | azure."
+        type: string
+        default: none
+      aws-role-arn:
+        description: "AWS IAM role to assume through OIDC (cloud-provider: aws)."
+        type: string
+        default: ""
+      aws-region:
+        description: "AWS region (cloud-provider: aws)."
+        type: string
+        default: ""
+      gcp-workload-identity-provider:
+        description: "Full resource name of the workload identity provider (cloud-provider: gcp)."
+        type: string
+        default: ""
+      gcp-service-account:
+        description: "Service account email to impersonate (cloud-provider: gcp)."
+        type: string
+        default: ""
+      azure-client-id:
+        description: "Azure app registration client ID (cloud-provider: azure)."
+        type: string
+        default: ""
+      azure-tenant-id:
+        description: "Azure tenant ID (cloud-provider: azure)."
+        type: string
+        default: ""
+      azure-subscription-id:
+        description: "Azure subscription ID (cloud-provider: azure)."
+        type: string
+        default: ""
+
+      plan-aws-role-arn:
+        description: "Optional read-only AWS role used by the plan job. Falls back to aws-role-arn."
+        type: string
+        default: ""
+      plan-gcp-service-account:
+        description: "Optional read-only service account used by the plan job. Falls back to gcp-service-account."
+        type: string
+        default: ""
+      plan-azure-client-id:
+        description: "Optional read-only client ID used by the plan job. Falls back to azure-client-id."
+        type: string
+        default: ""
+
+      allowed-ref:
+        description: "Only this git ref may run the workflow. Empty disables the check."
+        type: string
+        default: refs/heads/main
+
+      confirmation:
+        description: "Must equal 'destroy' for the workflow to proceed."
+        type: string
+        required: true
+      environment:
+        description: "GitHub environment for the destroy job. Configure required reviewers on it."
+        type: string
+        required: true
+      artifact-name:
+        description: "Name of the plan artifact passed from the plan job to the destroy job."
+        type: string
+        default: tfplan-destroy
+    secrets:
+      tf-api-token:
+        description: "Terraform Cloud / Enterprise API token."
+        required: false
+
+concurrency:
+  group: terraform-${{ inputs.working-directory }}-${{ inputs.environment }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  plan:
+    name: Plan destroy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      has-changes: ${{ steps.plan.outputs.has-changes }}
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "0"
+      ARM_USE_OIDC: ${{ inputs.cloud-provider == 'azure' }}
+      ARM_CLIENT_ID: ${{ inputs.plan-azure-client-id || inputs.azure-client-id }}
+      ARM_TENANT_ID: ${{ inputs.azure-tenant-id }}
+      ARM_SUBSCRIPTION_ID: ${{ inputs.azure-subscription-id }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Verify confirmation
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          if [[ "$CONFIRMATION" != "destroy" ]]; then
+            echo "::error::confirmation must be exactly 'destroy'"
+            exit 1
+          fi
+
+      - name: Verify ref is allowed
+        if: inputs.allowed-ref != ''
+        env:
+          ALLOWED_REF: ${{ inputs.allowed-ref }}
+          CURRENT_REF: ${{ github.ref }}
+        run: |
+          if [[ "$CURRENT_REF" != "$ALLOWED_REF" ]]; then
+            echo "::error::Ref $CURRENT_REF is not allowed to run this workflow (expected $ALLOWED_REF)"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Authenticate to AWS
+        if: inputs.cloud-provider == 'aws'
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ inputs.plan-aws-role-arn || inputs.aws-role-arn }}
+          aws-region: ${{ inputs.aws-region }}
+          role-session-name: gha-terraform-${{ github.run_id }}
+
+      - name: Authenticate to Google Cloud
+        if: inputs.cloud-provider == 'gcp'
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ inputs.gcp-workload-identity-provider }}
+          service_account: ${{ inputs.plan-gcp-service-account || inputs.gcp-service-account }}
+
+      - name: Authenticate to Azure
+        if: inputs.cloud-provider == 'azure'
+        uses: azure/login@v3
+        with:
+          client-id: ${{ inputs.plan-azure-client-id || inputs.azure-client-id }}
+          tenant-id: ${{ inputs.azure-tenant-id }}
+          subscription-id: ${{ inputs.azure-subscription-id }}
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ inputs.terraform-version }}
+          cli_config_credentials_token: ${{ secrets.tf-api-token }}
+          terraform_wrapper: false
+
+      - name: Init
+        env:
+          INIT_ARGS: ${{ inputs.init-args }}
+        run: terraform init -input=false $INIT_ARGS
+      - name: Plan
+        id: plan
+        env:
+          PLAN_ARGS: ${{ inputs.plan-args }}
+        run: |
+          set +e
+          terraform plan -input=false -lock-timeout=5m -detailed-exitcode -destroy -out=tfplan $PLAN_ARGS
+          code=$?
+          set -e
+          case "$code" in
+            0) echo "has-changes=false" >> "$GITHUB_OUTPUT" ;;
+            2) echo "has-changes=true" >> "$GITHUB_OUTPUT" ;;
+            *) exit "$code" ;;
+          esac
+
+      - name: Render plan
+        if: steps.plan.outputs.has-changes == 'true'
+        env:
+          WORKDIR: ${{ inputs.working-directory }}
+        run: |
+          terraform show -no-color tfplan > plan.txt
+          sha256sum tfplan > tfplan.sha256
+          {
+            echo "### Terraform plan ($WORKDIR)"
+            echo '<details><summary>Show plan</summary>'
+            echo
+            echo '```'
+            head -c 60000 plan.txt
+            echo '```'
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload plan
+        if: steps.plan.outputs.has-changes == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: |
+            ${{ format('{0}/tfplan', inputs.working-directory) }}
+            ${{ format('{0}/tfplan.sha256', inputs.working-directory) }}
+          retention-days: 1
+          if-no-files-found: error
+
+  destroy:
+    name: Destroy
+    needs: plan
+    if: needs.plan.outputs.has-changes == 'true'
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "0"
+      ARM_USE_OIDC: ${{ inputs.cloud-provider == 'azure' }}
+      ARM_CLIENT_ID: ${{ inputs.azure-client-id }}
+      ARM_TENANT_ID: ${{ inputs.azure-tenant-id }}
+      ARM_SUBSCRIPTION_ID: ${{ inputs.azure-subscription-id }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Authenticate to AWS
+        if: inputs.cloud-provider == 'aws'
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ inputs.aws-role-arn }}
+          aws-region: ${{ inputs.aws-region }}
+          role-session-name: gha-terraform-${{ github.run_id }}
+
+      - name: Authenticate to Google Cloud
+        if: inputs.cloud-provider == 'gcp'
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ inputs.gcp-workload-identity-provider }}
+          service_account: ${{ inputs.gcp-service-account }}
+
+      - name: Authenticate to Azure
+        if: inputs.cloud-provider == 'azure'
+        uses: azure/login@v3
+        with:
+          client-id: ${{ inputs.azure-client-id }}
+          tenant-id: ${{ inputs.azure-tenant-id }}
+          subscription-id: ${{ inputs.azure-subscription-id }}
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ inputs.terraform-version }}
+          cli_config_credentials_token: ${{ secrets.tf-api-token }}
+          terraform_wrapper: false
+
+      - name: Init
+        env:
+          INIT_ARGS: ${{ inputs.init-args }}
+        run: terraform init -input=false $INIT_ARGS
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: ${{ inputs.working-directory }}
+
+      - name: Verify plan integrity
+        run: sha256sum --check tfplan.sha256
+
+      - name: Destroy
+        run: terraform apply -input=false -lock-timeout=5m tfplan

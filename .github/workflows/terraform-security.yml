@@ -1,0 +1,60 @@
+name: Terraform Security Scan
+
+# Scans Terraform code for misconfigurations with Trivy and optionally uploads
+# the results to GitHub code scanning. Needs no cloud credentials.
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: "Directory to scan."
+        type: string
+        default: .
+      severity:
+        description: "Comma-separated severities that fail the scan."
+        type: string
+        default: HIGH,CRITICAL
+      soft-fail:
+        description: "Report findings without failing the job."
+        type: boolean
+        default: false
+      upload-sarif:
+        description: "Upload results to GitHub code scanning (requires code scanning to be available for the repo)."
+        type: boolean
+        default: true
+      skip-dirs:
+        description: "Comma-separated directories to skip."
+        type: string
+        default: ""
+
+permissions: {}
+
+jobs:
+  scan:
+    name: Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Pinned to a commit SHA: version v0.36.0.
+      - name: Trivy config scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          scan-type: config
+          scan-ref: ${{ inputs.working-directory }}
+          severity: ${{ inputs.severity }}
+          skip-dirs: ${{ inputs.skip-dirs }}
+          format: sarif
+          output: trivy-results.sarif
+          exit-code: ${{ inputs.soft-fail && '0' || '1' }}
+
+      - name: Upload SARIF
+        if: always() && inputs.upload-sarif && hashFiles('trivy-results.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-results.sarif
+          category: terraform-${{ inputs.working-directory }}
