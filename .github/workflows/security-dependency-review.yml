@@ -1,0 +1,57 @@
+name: Dependency Review
+
+# Blocks pull requests that introduce vulnerable or disallowed dependencies and
+# summarizes dependency changes. Callers use the `pull_request` trigger.
+# Requires the dependency graph (always on for public repos).
+
+on:
+  workflow_call:
+    inputs:
+      fail-on-severity:
+        description: "Lowest severity that fails the check: low | moderate | high | critical."
+        type: string
+        default: high
+      fail-on-scopes:
+        description: "Comma-separated dependency scopes that fail the check: runtime, development, unknown."
+        type: string
+        default: runtime
+      deny-licenses:
+        description: "Comma-separated SPDX license ids to block. Cannot be combined with allow-licenses."
+        type: string
+        default: ""
+      allow-licenses:
+        description: "Comma-separated SPDX license ids to allow, everything else fails. Cannot be combined with deny-licenses."
+        type: string
+        default: ""
+      comment-summary-in-pr:
+        description: "Post a summary comment: always | on-failure | never."
+        type: string
+        default: on-failure
+      warn-only:
+        description: "Report findings without failing the job."
+        type: boolean
+        default: false
+
+permissions: {}
+
+jobs:
+  review:
+    name: Review dependency changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Pinned to a commit SHA: version v5.0.0.
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294
+        with:
+          fail-on-severity: ${{ inputs.fail-on-severity }}
+          fail-on-scopes: ${{ inputs.fail-on-scopes }}
+          deny-licenses: ${{ inputs.deny-licenses }}
+          allow-licenses: ${{ inputs.allow-licenses }}
+          comment-summary-in-pr: ${{ inputs.comment-summary-in-pr }}
+          warn-only: ${{ inputs.warn-only }}

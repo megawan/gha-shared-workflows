@@ -11,7 +11,7 @@ Reference them by version tag (`@v1`), not `@main`, so that a change here does n
 examples/            ready-to-copy caller workflows, one folder per group
 ```
 
-GitHub only loads workflows from the top level of `.github/workflows/`, so workflow files cannot be placed in subfolders. They are grouped by prefix instead: `automation-`, `ci-` and `terraform-`.
+GitHub only loads workflows from the top level of `.github/workflows/`, so workflow files cannot be placed in subfolders. They are grouped by prefix instead: `automation-`, `ci-`, `security-` and `terraform-`.
 
 ## Workflows
 
@@ -38,6 +38,16 @@ Examples: [`examples/automation/`](examples/automation)
 | [`ci-docker-build-push.yml`](.github/workflows/ci-docker-build-push.yml) | Build and push (multi-arch) images with metadata tags and cache | `push`, `pull_request`, tags |
 
 Examples: [`examples/ci/`](examples/ci)
+
+### Security (`security-*`)
+
+| Workflow | Purpose | Caller trigger |
+| --- | --- | --- |
+| [`security-codeql.yml`](.github/workflows/security-codeql.yml) | CodeQL static analysis per language, results in code scanning | `push`, `pull_request`, `schedule` |
+| [`security-dependency-review.yml`](.github/workflows/security-dependency-review.yml) | Block vulnerable or disallowed dependencies and licenses | `pull_request` |
+| [`security-secret-scan.yml`](.github/workflows/security-secret-scan.yml) | Detect leaked secrets with gitleaks (redacted output) | `push`, `pull_request` |
+
+Examples: [`examples/security/`](examples/security)
 
 ### Terraform (`terraform-*`)
 
