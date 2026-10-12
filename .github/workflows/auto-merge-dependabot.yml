@@ -1,0 +1,63 @@
+name: Auto-merge Dependabot
+
+# Approves and enables auto-merge for Dependabot PRs according to the update type.
+# Requirements in the caller repo: "Allow auto-merge" enabled and required status
+# checks configured, so merging only happens once CI is green.
+# Callers use the `pull_request` trigger.
+
+on:
+  workflow_call:
+    inputs:
+      allowed-update-types:
+        description: "Comma-separated update types to merge automatically: patch, minor, major."
+        type: string
+        default: "patch,minor"
+      merge-method:
+        description: "squash | merge | rebase"
+        type: string
+        default: squash
+      include-dev-dependencies-only:
+        description: "Only auto-merge development dependencies."
+        type: boolean
+        default: false
+
+permissions: {}
+
+jobs:
+  auto-merge:
+    name: Enable auto-merge
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - id: metadata
+        uses: dependabot/fetch-metadata@v3
+        with:
+          github-token: ${{ github.token }}
+
+      - name: Evaluate policy
+        id: policy
+        env:
+          UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
+          DEPENDENCY_TYPE: ${{ steps.metadata.outputs.dependency-type }}
+          ALLOWED: ${{ inputs.allowed-update-types }}
+          DEV_ONLY: ${{ inputs.include-dev-dependencies-only }}
+        run: |
+          short="${UPDATE_TYPE#version-update:semver-}"
+          ok=false
+          if [[ ",${ALLOWED// /}," == *",${short},"* ]]; then ok=true; fi
+          if [[ "$DEV_ONLY" == "true" && "$DEPENDENCY_TYPE" != *development* ]]; then ok=false; fi
+          echo "update=$short dependency-type=$DEPENDENCY_TYPE eligible=$ok"
+          echo "eligible=$ok" >> "$GITHUB_OUTPUT"
+
+      - name: Approve and enable auto-merge
+        if: steps.policy.outputs.eligible == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          METHOD: ${{ inputs.merge-method }}
+        run: |
+          gh pr review --approve "$PR_URL"
+          gh pr merge --auto "--${METHOD}" "$PR_URL"
