@@ -133,14 +133,17 @@ jobs:
       - name: Init
         env:
           INIT_ARGS: ${{ inputs.init-args }}
-        run: terraform init -input=false $INIT_ARGS
+        run: |
+          read -ra init_args <<< "$INIT_ARGS"
+          terraform init -input=false "${init_args[@]}"
       - name: Plan
         id: plan
         env:
           PLAN_ARGS: ${{ inputs.plan-args }}
         run: |
+          read -ra plan_args <<< "$PLAN_ARGS"
           set +e
-          terraform plan -input=false -lock-timeout=5m -detailed-exitcode -out=tfplan $PLAN_ARGS
+          terraform plan -input=false -lock-timeout=5m -detailed-exitcode -out=tfplan "${plan_args[@]}"
           code=$?
           set -e
           case "$code" in

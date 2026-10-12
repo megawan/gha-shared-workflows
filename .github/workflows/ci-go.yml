@@ -70,4 +70,6 @@ jobs:
       - name: Build
         env:
           PACKAGES: ${{ inputs.build-packages }}
-        run: go build $PACKAGES
+        run: |
+          read -ra packages <<< "$PACKAGES"
+          go build "${packages[@]}"

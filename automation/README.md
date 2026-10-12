@@ -9,6 +9,7 @@ Workflow files live in `.github/workflows/` (GitHub requires a flat layout) and 
 | [`automation-stale.yml`](../.github/workflows/automation-stale.yml) | Mark and close inactive issues and PRs | `schedule`, `workflow_dispatch` |
 | [`automation-auto-merge-dependabot.yml`](../.github/workflows/automation-auto-merge-dependabot.yml) | Approve and auto-merge Dependabot PRs | `pull_request` |
 | [`automation-sync-labels.yml`](../.github/workflows/automation-sync-labels.yml) | Sync repo labels with a definition file | `push`, `workflow_dispatch` |
+| [`automation-actionlint.yml`](../.github/workflows/automation-actionlint.yml) | Lint workflow files with actionlint (checksum-verified binary, shellcheck included) | `pull_request`, `push` |
 
 ## Usage examples
 
@@ -89,3 +90,18 @@ jobs:
     uses: OWNER/gha-shared-workflows/.github/workflows/automation-sync-labels.yml@v1
 ```
 
+### Actionlint
+Lints every file in `.github/workflows/` of the caller repo.
+```yaml
+name: Lint
+on:
+  pull_request:
+    paths: [".github/workflows/**"]
+jobs:
+  actionlint:
+    permissions:
+      contents: read
+    uses: OWNER/gha-shared-workflows/.github/workflows/automation-actionlint.yml@v1
+```
+
+This repository lints itself with [`lint.yml`](../.github/workflows/lint.yml), which calls the same workflow.

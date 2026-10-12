@@ -10,7 +10,7 @@ GitHub only loads workflows from `.github/workflows/` and does not support subfo
 
 | Group | Prefix | Docs and examples | Workflows |
 | --- | --- | --- | --- |
-| PR and repo automation | `automation-` | [`automation/`](automation/README.md) | PR title lint, labeler, stale, Dependabot auto-merge, label sync |
+| PR and repo automation | `automation-` | [`automation/`](automation/README.md) | PR title lint, labeler, stale, Dependabot auto-merge, label sync, actionlint |
 | CI | `ci-` | [`ci/`](ci/README.md) | Node, Python, Go, Docker build and push |
 | Terraform | `terraform-` | [`terraform/`](terraform/README.md) | validate, security scan, plan, apply, drift, destroy |
 
