@@ -1,0 +1,33 @@
+name: Labeler
+
+# Labels PRs automatically based on the changed file paths.
+# Callers should use the `pull_request_target` trigger and provide the
+# configuration file (default: .github/labeler.yml) in their own repo.
+
+on:
+  workflow_call:
+    inputs:
+      configuration-path:
+        description: "Path to the labeler configuration file in the caller repo."
+        type: string
+        default: .github/labeler.yml
+      sync-labels:
+        description: "Remove labels that no longer match the configuration."
+        type: boolean
+        default: true
+
+permissions: {}
+
+jobs:
+  label:
+    name: Label PR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/labeler@v7
+        with:
+          repo-token: ${{ github.token }}
+          configuration-path: ${{ inputs.configuration-path }}
+          sync-labels: ${{ inputs.sync-labels }}

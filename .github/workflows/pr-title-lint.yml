@@ -1,0 +1,42 @@
+name: PR Title Lint
+
+# Validates the PR title against Conventional Commits.
+# Callers should use the `pull_request_target` trigger (opened, edited, synchronize, reopened).
+
+on:
+  workflow_call:
+    inputs:
+      types:
+        description: "Allowed types, one per line. Empty uses the Conventional Commits defaults."
+        type: string
+        default: ""
+      scopes:
+        description: "Allowed scopes, one per line. Empty allows any scope."
+        type: string
+        default: ""
+      require-scope:
+        description: "Require a scope in the PR title."
+        type: boolean
+        default: false
+      ignore-labels:
+        description: "Labels, one per line, that cause validation to be skipped."
+        type: string
+        default: ""
+
+permissions: {}
+
+jobs:
+  lint:
+    name: Lint PR title
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    steps:
+      - uses: amannn/action-semantic-pull-request@v6
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          types: ${{ inputs.types }}
+          scopes: ${{ inputs.scopes }}
+          requireScope: ${{ inputs.require-scope }}
+          ignoreLabels: ${{ inputs.ignore-labels }}
