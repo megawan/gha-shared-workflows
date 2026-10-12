@@ -1,8 +1,7 @@
 # Terraform workflows
 
-GitHub only loads reusable workflows from `.github/workflows/` (no subfolders), so the
-workflow files live there with a `terraform-` prefix. This folder holds the documentation
-and ready-to-copy caller examples.
+The workflow files live in `.github/workflows/` with a `terraform-` prefix. This folder
+holds the documentation and ready-to-copy caller examples.
 
 ## Building blocks
 
@@ -85,9 +84,9 @@ Azure: add federated credentials on the app registration for the `environment:<n
 
 | File | Use |
 | --- | --- |
-| [`examples/terraform-pr.yml`](examples/terraform-pr.yml) | Validate, scan and plan on pull requests |
-| [`examples/terraform-deploy.yml`](examples/terraform-deploy.yml) | Apply on push to `main`, behind an environment |
-| [`examples/terraform-drift.yml`](examples/terraform-drift.yml) | Nightly drift detection |
-| [`examples/terraform-destroy.yml`](examples/terraform-destroy.yml) | Manual, confirmed destroy |
+| [`pr.yml`](pr.yml) | Validate, scan and plan on pull requests |
+| [`deploy.yml`](deploy.yml) | Apply on push to `main`, behind an environment |
+| [`drift.yml`](drift.yml) | Nightly drift detection |
+| [`destroy.yml`](destroy.yml) | Manual, confirmed destroy |
 
 Copy a file into `.github/workflows/` of the calling repo and replace `OWNER` and the cloud IDs.

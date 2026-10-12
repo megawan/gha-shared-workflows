@@ -1,0 +1,13 @@
+# Enable "Allow auto-merge" and required status checks in the calling repo.
+name: Dependabot
+
+on: pull_request
+
+jobs:
+  auto-merge:
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: OWNER/gha-shared-workflows/.github/workflows/automation-auto-merge-dependabot.yml@v1
+    with:
+      allowed-update-types: patch,minor

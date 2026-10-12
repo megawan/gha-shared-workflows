@@ -1,0 +1,15 @@
+name: Stale
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  stale:
+    permissions:
+      issues: write
+      pull-requests: write
+    uses: OWNER/gha-shared-workflows/.github/workflows/automation-stale.yml@v1
+    with:
+      days-before-stale: 30

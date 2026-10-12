@@ -1,0 +1,11 @@
+# Requires a .github/labeler.yml configuration file in the calling repo.
+name: Labeler
+
+on: pull_request_target
+
+jobs:
+  label:
+    permissions:
+      contents: read
+      pull-requests: write
+    uses: OWNER/gha-shared-workflows/.github/workflows/automation-labeler.yml@v1

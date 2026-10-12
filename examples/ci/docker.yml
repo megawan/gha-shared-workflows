@@ -1,0 +1,18 @@
+# Pushes to GHCR with the job token. Images are built but not pushed on pull requests.
+# For other registries set 'registry' and pass the registry-username / registry-password secrets.
+name: Image
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+jobs:
+  image:
+    permissions:
+      contents: read
+      packages: write
+    uses: OWNER/gha-shared-workflows/.github/workflows/ci-docker-build-push.yml@v1
+    with:
+      platforms: linux/amd64,linux/arm64

@@ -1,0 +1,15 @@
+# Requires a .github/labels.yml file (crazy-max/ghaction-github-labeler format) in the calling repo.
+name: Sync Labels
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/labels.yml]
+  workflow_dispatch:
+
+jobs:
+  sync:
+    permissions:
+      contents: read
+      issues: write
+    uses: OWNER/gha-shared-workflows/.github/workflows/automation-sync-labels.yml@v1

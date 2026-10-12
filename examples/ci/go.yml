@@ -1,0 +1,12 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  ci:
+    permissions:
+      contents: read
+    uses: OWNER/gha-shared-workflows/.github/workflows/ci-go.yml@v1
