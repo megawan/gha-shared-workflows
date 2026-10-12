@@ -6,23 +6,53 @@ Reference them by version tag (`@v1`), not `@main`, so that a change here does n
 
 ## Layout
 
-GitHub only loads workflows from `.github/workflows/` and does not support subfolders, so workflow files stay flat there and are grouped by filename prefix. Each group has a folder with its own documentation and examples.
-
-| Group | Prefix | Docs and examples | Workflows |
-| --- | --- | --- | --- |
-| PR and repo automation | `automation-` | [`automation/`](automation/README.md) | PR title lint, labeler, stale, Dependabot auto-merge, label sync, actionlint |
-| CI | `ci-` | [`ci/`](ci/README.md) | Node, Python, Go, Docker build and push |
-| Terraform | `terraform-` | [`terraform/`](terraform/README.md) | validate, security scan, plan, apply, drift, destroy |
-
 ```
-.github/workflows/
-  automation-*.yml
-  ci-*.yml
-  terraform-*.yml
-automation/   README.md
-ci/           README.md
-terraform/    README.md, examples/
+.github/workflows/   reusable workflows, grouped by filename prefix
+examples/            ready-to-copy caller workflows, one folder per group
 ```
+
+GitHub only loads workflows from the top level of `.github/workflows/`, so workflow files cannot be placed in subfolders. They are grouped by prefix instead: `automation-`, `ci-` and `terraform-`.
+
+## Workflows
+
+### Automation (`automation-*`)
+
+| Workflow | Purpose | Caller trigger |
+| --- | --- | --- |
+| [`automation-pr-title-lint.yml`](.github/workflows/automation-pr-title-lint.yml) | Validate PR titles (Conventional Commits) | `pull_request_target` |
+| [`automation-labeler.yml`](.github/workflows/automation-labeler.yml) | Label PRs automatically by changed paths | `pull_request_target` |
+| [`automation-stale.yml`](.github/workflows/automation-stale.yml) | Mark and close inactive issues and PRs | `schedule`, `workflow_dispatch` |
+| [`automation-auto-merge-dependabot.yml`](.github/workflows/automation-auto-merge-dependabot.yml) | Approve and auto-merge Dependabot PRs | `pull_request` |
+| [`automation-sync-labels.yml`](.github/workflows/automation-sync-labels.yml) | Sync repo labels with a definition file | `push`, `workflow_dispatch` |
+| [`automation-actionlint.yml`](.github/workflows/automation-actionlint.yml) | Lint workflow files with actionlint | `pull_request`, `push` |
+
+Examples: [`examples/automation/`](examples/automation)
+
+### CI (`ci-*`)
+
+| Workflow | Purpose | Caller trigger |
+| --- | --- | --- |
+| [`ci-node.yml`](.github/workflows/ci-node.yml) | Install, lint, test and build with npm, pnpm or yarn | `push`, `pull_request` |
+| [`ci-python.yml`](.github/workflows/ci-python.yml) | Install, optional lint, and test with pytest | `push`, `pull_request` |
+| [`ci-go.yml`](.github/workflows/ci-go.yml) | `go vet`, golangci-lint, `go test -race`, `go build` | `push`, `pull_request` |
+| [`ci-docker-build-push.yml`](.github/workflows/ci-docker-build-push.yml) | Build and push (multi-arch) images with metadata tags and cache | `push`, `pull_request`, tags |
+
+Examples: [`examples/ci/`](examples/ci)
+
+### Terraform (`terraform-*`)
+
+Split into small workflows with separate permissions and OIDC authentication. The flow and security model are described in [`examples/terraform/README.md`](examples/terraform/README.md).
+
+| Workflow | Purpose |
+| --- | --- |
+| [`terraform-validate.yml`](.github/workflows/terraform-validate.yml) | fmt, validate, TFLint (no credentials) |
+| [`terraform-security.yml`](.github/workflows/terraform-security.yml) | Trivy misconfiguration scan |
+| [`terraform-plan.yml`](.github/workflows/terraform-plan.yml) | Plan with PR comment |
+| [`terraform-apply.yml`](.github/workflows/terraform-apply.yml) | Gated apply of a verified saved plan |
+| [`terraform-drift.yml`](.github/workflows/terraform-drift.yml) | Scheduled drift detection with issue reporting |
+| [`terraform-destroy.yml`](.github/workflows/terraform-destroy.yml) | Confirmed, gated destroy |
+
+Examples: [`examples/terraform/`](examples/terraform)
 
 ## Calling a workflow
 
@@ -37,5 +67,6 @@ jobs:
 ```
 
 ## Notes
-- The caller must grant at least the `permissions` that the called workflow's job needs (the examples above already do).
+- The caller must grant at least the `permissions` that the called workflow's job needs (the examples already do).
 - This repo must be public, or private with *Settings > Actions > General > Access* allowing other repos to use it.
+- This repository lints its own workflows with [`lint.yml`](.github/workflows/lint.yml).

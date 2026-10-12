@@ -1,0 +1,11 @@
+name: Lint
+
+on:
+  pull_request:
+    paths: [".github/workflows/**"]
+
+jobs:
+  actionlint:
+    permissions:
+      contents: read
+    uses: OWNER/gha-shared-workflows/.github/workflows/automation-actionlint.yml@v1
