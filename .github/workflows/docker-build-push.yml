@@ -1,0 +1,119 @@
+name: Docker Build and Push
+
+# Builds a (multi-arch) image and pushes it to a registry. Defaults to GHCR with the
+# job token. On pull_request events the image is built but never pushed.
+
+on:
+  workflow_call:
+    inputs:
+      image-name:
+        description: "Image name without registry. Empty uses the lowercase repository name."
+        type: string
+        default: ""
+      registry:
+        type: string
+        default: ghcr.io
+      context:
+        type: string
+        default: .
+      file:
+        description: "Dockerfile path. Empty uses <context>/Dockerfile."
+        type: string
+        default: ""
+      platforms:
+        type: string
+        default: linux/amd64
+      push:
+        description: "Push the image (ignored on pull_request events)."
+        type: boolean
+        default: true
+      tags:
+        description: "docker/metadata-action tag rules, one per line."
+        type: string
+        default: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=sha
+      build-args:
+        description: "Build arguments, one KEY=VALUE per line."
+        type: string
+        default: ""
+    secrets:
+      registry-username:
+        description: "Registry username. Not needed for GHCR."
+        required: false
+      registry-password:
+        description: "Registry password or token. Not needed for GHCR."
+        required: false
+    outputs:
+      image:
+        description: "Full image reference without tag."
+        value: ${{ jobs.build.outputs.image }}
+      digest:
+        description: "Image digest."
+        value: ${{ jobs.build.outputs.digest }}
+      tags:
+        description: "Tags applied to the image."
+        value: ${{ jobs.build.outputs.tags }}
+
+permissions: {}
+
+jobs:
+  build:
+    name: Build and push image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.name.outputs.image }}
+      digest: ${{ steps.build.outputs.digest }}
+      tags: ${{ steps.meta.outputs.tags }}
+    env:
+      SHOULD_PUSH: ${{ inputs.push && github.event_name != 'pull_request' }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Resolve image name
+        id: name
+        env:
+          REGISTRY: ${{ inputs.registry }}
+          IMAGE_NAME: ${{ inputs.image-name }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          name="${IMAGE_NAME:-$REPOSITORY}"
+          echo "image=${REGISTRY}/${name,,}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@v4
+        if: contains(inputs.platforms, ',') || !startsWith(inputs.platforms, 'linux/amd64')
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to registry
+        if: env.SHOULD_PUSH == 'true'
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ secrets.registry-username || github.actor }}
+          password: ${{ secrets.registry-password || github.token }}
+
+      - id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ steps.name.outputs.image }}
+          tags: ${{ inputs.tags }}
+
+      - id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.file }}
+          platforms: ${{ inputs.platforms }}
+          push: ${{ env.SHOULD_PUSH == 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: ${{ inputs.build-args }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

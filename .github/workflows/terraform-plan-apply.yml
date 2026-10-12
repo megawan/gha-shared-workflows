@@ -1,0 +1,138 @@
+name: Terraform Plan and Apply
+
+# Runs fmt, init, validate and plan. Optionally applies the saved plan in a second
+# job, which can be gated by a GitHub environment with required reviewers.
+# Callers typically set `apply: false` on pull_request and `apply: true` on push to main.
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        type: string
+        default: .
+      terraform-version:
+        description: "Terraform version constraint passed to hashicorp/setup-terraform."
+        type: string
+        default: latest
+      init-args:
+        description: "Extra arguments for terraform init, e.g. -backend-config=prod.hcl."
+        type: string
+        default: ""
+      plan-args:
+        description: "Extra arguments for terraform plan, e.g. -var-file=prod.tfvars."
+        type: string
+        default: ""
+      apply:
+        description: "Apply the plan after a successful plan with changes."
+        type: boolean
+        default: false
+      environment:
+        description: "GitHub environment for the apply job. Empty uses none."
+        type: string
+        default: ""
+    secrets:
+      tf-api-token:
+        description: "Terraform Cloud / Enterprise API token."
+        required: false
+    outputs:
+      has-changes:
+        description: "true when the plan contains changes."
+        value: ${{ jobs.plan.outputs.has-changes }}
+
+permissions: {}
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      has-changes: ${{ steps.plan.outputs.has-changes }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ inputs.terraform-version }}
+          cli_config_credentials_token: ${{ secrets.tf-api-token }}
+          terraform_wrapper: false
+
+      - name: Format check
+        run: terraform fmt -check -recursive -diff
+
+      - name: Init
+        env:
+          INIT_ARGS: ${{ inputs.init-args }}
+        run: terraform init -input=false $INIT_ARGS
+
+      - name: Validate
+        run: terraform validate
+
+      - name: Plan
+        id: plan
+        env:
+          PLAN_ARGS: ${{ inputs.plan-args }}
+        run: |
+          set +e
+          terraform plan -input=false -lock-timeout=5m -detailed-exitcode -out=tfplan $PLAN_ARGS
+          code=$?
+          set -e
+          case "$code" in
+            0) echo "has-changes=false" >> "$GITHUB_OUTPUT" ;;
+            2) echo "has-changes=true" >> "$GITHUB_OUTPUT" ;;
+            *) exit "$code" ;;
+          esac
+
+      - name: Summary
+        run: |
+          {
+            echo '### Terraform plan'
+            echo '```'
+            terraform show -no-color tfplan
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload plan
+        if: inputs.apply && steps.plan.outputs.has-changes == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: tfplan
+          path: ${{ format('{0}/tfplan', inputs.working-directory) }}
+          retention-days: 1
+
+  apply:
+    name: Apply
+    needs: plan
+    if: inputs.apply && needs.plan.outputs.has-changes == 'true'
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || null }}
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ inputs.terraform-version }}
+          cli_config_credentials_token: ${{ secrets.tf-api-token }}
+          terraform_wrapper: false
+
+      - name: Init
+        env:
+          INIT_ARGS: ${{ inputs.init-args }}
+        run: terraform init -input=false $INIT_ARGS
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: tfplan
+          path: ${{ inputs.working-directory }}
+
+      - name: Apply
+        run: terraform apply -input=false -lock-timeout=5m tfplan

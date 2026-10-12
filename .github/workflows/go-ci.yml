@@ -1,0 +1,73 @@
+name: Go CI
+
+# Runs go vet, go test and go build, with optional golangci-lint.
+
+on:
+  workflow_call:
+    inputs:
+      go-version:
+        description: "Go version. Empty reads the version from go-version-file."
+        type: string
+        default: ""
+      go-version-file:
+        description: "Path to go.mod, relative to working-directory."
+        type: string
+        default: go.mod
+      working-directory:
+        type: string
+        default: .
+      lint:
+        description: "Run golangci-lint."
+        type: boolean
+        default: true
+      race:
+        description: "Run tests with the race detector."
+        type: boolean
+        default: true
+      build-packages:
+        type: string
+        default: ./...
+
+permissions: {}
+
+jobs:
+  ci:
+    name: Go CI
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ inputs.go-version }}
+          go-version-file: ${{ format('{0}/{1}', inputs.working-directory, inputs.go-version-file) }}
+          cache-dependency-path: ${{ format('{0}/go.sum', inputs.working-directory) }}
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Lint
+        if: inputs.lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          working-directory: ${{ inputs.working-directory }}
+
+      - name: Test
+        env:
+          RACE: ${{ inputs.race }}
+        run: |
+          if [[ "$RACE" == "true" ]]; then
+            go test -race ./...
+          else
+            go test ./...
+          fi
+
+      - name: Build
+        env:
+          PACKAGES: ${{ inputs.build-packages }}
+        run: go build $PACKAGES

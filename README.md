@@ -14,7 +14,17 @@ Reference them by version tag (`@v1`), not `@main`, so that a change here does n
 | [`auto-merge-dependabot.yml`](.github/workflows/auto-merge-dependabot.yml) | Approve and auto-merge Dependabot PRs | `pull_request` |
 | [`sync-labels.yml`](.github/workflows/sync-labels.yml) | Sync repo labels with a definition file | `push`, `workflow_dispatch` |
 
-## Usage examples
+## CI
+
+| Workflow | Purpose | Caller trigger |
+| --- | --- | --- |
+| [`node-ci.yml`](.github/workflows/node-ci.yml) | Install, lint, test and build with npm, pnpm or yarn | `push`, `pull_request` |
+| [`python-ci.yml`](.github/workflows/python-ci.yml) | Install, optional lint, and test with pytest | `push`, `pull_request` |
+| [`go-ci.yml`](.github/workflows/go-ci.yml) | `go vet`, golangci-lint, `go test -race`, `go build` | `push`, `pull_request` |
+| [`docker-build-push.yml`](.github/workflows/docker-build-push.yml) | Build and push (multi-arch) images with metadata tags and cache | `push`, `pull_request`, tags |
+| [`terraform-plan-apply.yml`](.github/workflows/terraform-plan-apply.yml) | fmt, validate, plan, and optional gated apply | `pull_request`, `push` |
+
+## PR / repo automation usage examples
 
 ### PR title lint
 ```yaml
@@ -92,6 +102,86 @@ jobs:
       issues: write
     uses: OWNER/gha-shared-workflows/.github/workflows/sync-labels.yml@v1
 ```
+
+## CI usage examples
+
+### Node CI
+```yaml
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  ci:
+    permissions:
+      contents: read
+    uses: OWNER/gha-shared-workflows/.github/workflows/node-ci.yml@v1
+    with:
+      package-manager: pnpm
+      scripts: lint,test,build
+```
+
+### Python CI
+```yaml
+jobs:
+  ci:
+    permissions:
+      contents: read
+    uses: OWNER/gha-shared-workflows/.github/workflows/python-ci.yml@v1
+    with:
+      python-version: "3.13"
+      lint-command: ruff check .
+```
+
+### Go CI
+```yaml
+jobs:
+  ci:
+    permissions:
+      contents: read
+    uses: OWNER/gha-shared-workflows/.github/workflows/go-ci.yml@v1
+```
+
+### Docker build and push
+Pushes to GHCR with the job token. Images are built but not pushed on pull requests.
+```yaml
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+jobs:
+  image:
+    permissions:
+      contents: read
+      packages: write
+    uses: OWNER/gha-shared-workflows/.github/workflows/docker-build-push.yml@v1
+    with:
+      platforms: linux/amd64,linux/arm64
+```
+For other registries, set `registry` and pass the `registry-username` and `registry-password` secrets.
+
+### Terraform plan and apply
+Plan on pull requests; plan and apply on pushes to `main`, gated by an environment.
+```yaml
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  terraform:
+    permissions:
+      contents: read
+    uses: OWNER/gha-shared-workflows/.github/workflows/terraform-plan-apply.yml@v1
+    with:
+      working-directory: infra
+      apply: ${{ github.event_name == 'push' }}
+      environment: production
+    secrets:
+      tf-api-token: ${{ secrets.TF_API_TOKEN }}
+```
+The saved plan is uploaded as a one-day artifact and may contain sensitive values. Cloud credentials are not handled here; use a remote backend with its own authentication or a Terraform Cloud token.
 
 ## Notes
 - The caller must grant at least the `permissions` that the called workflow's job needs (the examples above already do).

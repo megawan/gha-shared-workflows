@@ -1,0 +1,96 @@
+name: Node CI
+
+# Installs dependencies and runs package.json scripts (lint, test, build by default).
+# Scripts missing from package.json are skipped.
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: "Node.js version passed to actions/setup-node."
+        type: string
+        default: lts/*
+      package-manager:
+        description: "npm | pnpm | yarn"
+        type: string
+        default: npm
+      pnpm-version:
+        description: "pnpm version. Empty reads the packageManager field of package.json."
+        type: string
+        default: ""
+      working-directory:
+        type: string
+        default: .
+      cache-dependency-path:
+        description: "Lockfile path(s) used as the cache key. Empty uses the default lookup."
+        type: string
+        default: ""
+      scripts:
+        description: "Comma-separated package.json scripts to run, in order."
+        type: string
+        default: lint,test,build
+      install-command:
+        description: "Override the install command. Empty uses the frozen-lockfile install of the package manager."
+        type: string
+        default: ""
+
+permissions: {}
+
+jobs:
+  ci:
+    name: Node CI
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up pnpm
+        if: inputs.package-manager == 'pnpm'
+        uses: pnpm/action-setup@v6
+        with:
+          version: ${{ inputs.pnpm-version }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: ${{ inputs.package-manager }}
+          cache-dependency-path: ${{ inputs.cache-dependency-path }}
+
+      - name: Install dependencies
+        env:
+          PM: ${{ inputs.package-manager }}
+          INSTALL_COMMAND: ${{ inputs.install-command }}
+        run: |
+          if [[ -n "$INSTALL_COMMAND" ]]; then
+            bash -c "$INSTALL_COMMAND"
+            exit 0
+          fi
+          case "$PM" in
+            npm) npm ci ;;
+            pnpm) pnpm install --frozen-lockfile ;;
+            yarn)
+              if [[ -f .yarnrc.yml ]]; then yarn install --immutable; else yarn install --frozen-lockfile; fi
+              ;;
+            *) echo "Unsupported package manager: $PM" >&2; exit 1 ;;
+          esac
+
+      - name: Run scripts
+        env:
+          PM: ${{ inputs.package-manager }}
+          SCRIPTS: ${{ inputs.scripts }}
+        run: |
+          IFS=',' read -ra list <<< "${SCRIPTS// /}"
+          for script in "${list[@]}"; do
+            [[ -z "$script" ]] && continue
+            if ! node -e "process.exit(require('./package.json').scripts?.[process.argv[1]] ? 0 : 1)" "$script"; then
+              echo "::notice::Script '$script' not found in package.json, skipping"
+              continue
+            fi
+            echo "::group::$PM run $script"
+            "$PM" run "$script"
+            echo "::endgroup::"
+          done
