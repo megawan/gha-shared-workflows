@@ -1,0 +1,57 @@
+name: Actionlint
+
+# Lints GitHub Actions workflow files with actionlint (syntax, expressions, action
+# inputs, and shell scripts through shellcheck when available on the runner).
+# The release tarball is verified against the checksums published with the release.
+
+on:
+  workflow_call:
+    inputs:
+      actionlint-version:
+        description: "actionlint version without the leading v."
+        type: string
+        default: "1.7.12"
+      working-directory:
+        description: "Directory containing the .github/workflows folder to lint."
+        type: string
+        default: .
+      args:
+        description: "Extra arguments for actionlint, e.g. -ignore 'SC2086'."
+        type: string
+        default: ""
+
+permissions: {}
+
+jobs:
+  actionlint:
+    name: Lint workflows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install actionlint
+        env:
+          VERSION: ${{ inputs.actionlint-version }}
+        run: |
+          set -euo pipefail
+          base="https://github.com/rhysd/actionlint/releases/download/v${VERSION}"
+          archive="actionlint_${VERSION}_linux_amd64.tar.gz"
+          checksums="actionlint_${VERSION}_checksums.txt"
+          dir="$(mktemp -d)"
+          curl -fsSL -o "${dir}/${archive}" "${base}/${archive}"
+          curl -fsSL -o "${dir}/${checksums}" "${base}/${checksums}"
+          (cd "$dir" && grep " ${archive}\$" "$checksums" | sha256sum --check -)
+          tar -xzf "${dir}/${archive}" -C "$dir" actionlint
+          install -m 0755 "${dir}/actionlint" "${RUNNER_TEMP}/actionlint"
+
+      - name: Run actionlint
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          ARGS: ${{ inputs.args }}
+        run: |
+          # shellcheck disable=SC2086
+          "${RUNNER_TEMP}/actionlint" -color $ARGS

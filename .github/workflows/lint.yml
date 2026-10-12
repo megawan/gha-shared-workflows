@@ -1,0 +1,27 @@
+name: Lint
+
+# Lints the workflows of this repository with its own reusable actionlint workflow.
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/**"
+      - ".github/actions/**"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/**"
+      - ".github/actions/**"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  actionlint:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/automation-actionlint.yml
