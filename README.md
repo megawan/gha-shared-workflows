@@ -11,7 +11,7 @@ Reference them by version tag (`@v1`), not `@main`, so that a change here does n
 examples/            ready-to-copy caller workflows, one folder per group
 ```
 
-GitHub only loads workflows from the top level of `.github/workflows/`, so workflow files cannot be placed in subfolders. They are grouped by prefix instead: `automation-`, `ci-`, `security-` and `terraform-`.
+GitHub only loads workflows from the top level of `.github/workflows/`, so workflow files cannot be placed in subfolders. They are grouped by prefix instead: `automation-`, `ci-`, `security-`, `site-` and `terraform-`.
 
 ## Workflows
 
@@ -48,6 +48,16 @@ Examples: [`examples/ci/`](examples/ci)
 | [`security-secret-scan.yml`](.github/workflows/security-secret-scan.yml) | Detect leaked secrets with gitleaks (redacted output) | `push`, `pull_request` |
 
 Examples: [`examples/security/`](examples/security)
+
+### Site (`site-*`)
+
+Checks for static sites (for example GitHub Pages) that have no build step.
+
+| Workflow | Purpose | Caller trigger |
+| --- | --- | --- |
+| [`site-html-validate.yml`](.github/workflows/site-html-validate.yml) | Validate HTML syntax, structure and accessibility with html-validate | `pull_request`, `push` |
+
+Examples: [`examples/site/`](examples/site)
 
 ### Terraform (`terraform-*`)
 

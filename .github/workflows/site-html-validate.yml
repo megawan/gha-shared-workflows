@@ -1,0 +1,112 @@
+name: HTML Validate
+
+# Validates HTML files with html-validate: syntax, structure, accessibility and
+# best-practice rules. Needs no build step and no credentials.
+# Callers typically use `pull_request` and `push` to the default branch.
+
+on:
+  workflow_call:
+    inputs:
+      paths:
+        description: "Files, directories or globs to validate, separated by spaces or newlines."
+        type: string
+        default: "**/*.html"
+      config-file:
+        description: >-
+          Path to an html-validate config file in the caller repo. When set, preset and rules are ignored.
+        type: string
+        default: ""
+      preset:
+        description: "html-validate preset(s), comma-separated: recommended, standard, a11y, document, prettier."
+        type: string
+        default: recommended
+      rules:
+        description: >-
+          Comma-separated RULE:SEVERITY overrides, severity is off, warn or error.
+          Example: no-inline-style:off,doctype-style:warn
+        type: string
+        default: ""
+      max-warnings:
+        description: "Fail when the number of warnings exceeds this value. Empty means warnings never fail."
+        type: string
+        default: ""
+      html-validate-version:
+        description: "html-validate version."
+        type: string
+        default: "11.16.2"
+      node-version:
+        description: "Node.js version used to run html-validate."
+        type: string
+        default: "24"
+      working-directory:
+        description: "Directory in which the paths are resolved."
+        type: string
+        default: .
+
+permissions: {}
+
+jobs:
+  validate:
+    name: Validate HTML
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ inputs.node-version }}
+
+      - name: Validate
+        env:
+          PATHS: ${{ inputs.paths }}
+          CONFIG_FILE: ${{ inputs.config-file }}
+          PRESET: ${{ inputs.preset }}
+          RULES: ${{ inputs.rules }}
+          MAX_WARNINGS: ${{ inputs.max-warnings }}
+          VERSION: ${{ inputs.html-validate-version }}
+        run: |
+          set -euo pipefail
+
+          # Split the paths without letting the shell expand the globs.
+          set -f
+          read -ra paths <<< "$PATHS"
+          set +f
+
+          args=()
+          if [[ -n "$CONFIG_FILE" ]]; then
+            args+=(--config "$CONFIG_FILE")
+          else
+            config="${RUNNER_TEMP}/html-validate.config.json"
+            jq -n \
+              --arg presets "$PRESET" \
+              --arg rules "$RULES" \
+              '{
+                root: true,
+                extends: ($presets | split(",") | map(gsub(" "; "") | select(length > 0) | "html-validate:" + .)),
+                rules: ($rules | split(",") | map(gsub(" "; "") | select(length > 0) | split(":") | {key: .[0], value: .[1]}) | from_entries)
+              }' > "$config"
+            args+=(--config "$config")
+          fi
+          if [[ -n "$MAX_WARNINGS" ]]; then
+            args+=("--max-warnings=${MAX_WARNINGS}")
+          fi
+
+          log="${RUNNER_TEMP}/html-validate.log"
+          status=0
+          npx --yes "html-validate@${VERSION}" "${args[@]}" "${paths[@]}" 2>&1 | tee "$log" || status=$?
+
+          {
+            echo '### HTML validation'
+            echo '```'
+            sed -e 's/\x1b\[[0-9;]*m//g' "$log" | head -c 60000
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          exit "$status"
