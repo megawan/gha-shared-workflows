@@ -1,0 +1,16 @@
+name: PR Title
+
+# Enforces Conventional Commits on pull request titles of this repository,
+# using the repo's own reusable workflow.
+
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened]
+
+permissions: {}
+
+jobs:
+  lint:
+    permissions:
+      pull-requests: read
+    uses: ./.github/workflows/automation-pr-title-lint.yml

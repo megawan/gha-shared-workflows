@@ -76,7 +76,11 @@ jobs:
       package-manager: pnpm
 ```
 
+## Pull request template
+
+PRs use [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md). Usage, reuse in other repositories, and filled-in examples are in [`examples/pull-request/`](examples/pull-request).
+
 ## Notes
 - The caller must grant at least the `permissions` that the called workflow's job needs (the examples already do).
 - This repo must be public, or private with *Settings > Actions > General > Access* allowing other repos to use it.
-- This repository lints its own workflows with [`lint.yml`](.github/workflows/lint.yml).
+- This repository lints its own workflows with [`lint.yml`](.github/workflows/lint.yml), enforces PR titles with [`pr-title.yml`](.github/workflows/pr-title.yml), and keeps actions up to date with [Dependabot](.github/dependabot.yml).
