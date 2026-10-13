@@ -119,6 +119,8 @@ jobs:
         working-directory: ${{ inputs.working-directory }}
     steps:
       - name: Verify confirmation
+        # Runs before checkout, so the job-level working-directory does not exist yet.
+        working-directory: ${{ github.workspace }}
         env:
           CONFIRMATION: ${{ inputs.confirmation }}
         run: |
@@ -129,6 +131,8 @@ jobs:
 
       - name: Verify ref is allowed
         if: inputs.allowed-ref != ''
+        # Runs before checkout, so the job-level working-directory does not exist yet.
+        working-directory: ${{ github.workspace }}
         env:
           ALLOWED_REF: ${{ inputs.allowed-ref }}
           CURRENT_REF: ${{ github.ref }}
