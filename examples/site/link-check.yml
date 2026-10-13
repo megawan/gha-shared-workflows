@@ -1,0 +1,22 @@
+name: Links
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+jobs:
+  links:
+    permissions:
+      contents: read
+    uses: OWNER/gha-shared-workflows/.github/workflows/site-link-check.yml@v1
+    with:
+      paths: "**/*.html **/*.md"
+      # Skip pages that block automated requests.
+      exclude: |
+        ^https://www\.linkedin\.com/
+      # External sites can fail temporarily; report them but only fail on pull requests.
+      fail: ${{ github.event_name != 'schedule' }}

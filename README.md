@@ -56,6 +56,7 @@ Checks for static sites (for example GitHub Pages) that have no build step.
 | Workflow | Purpose | Caller trigger |
 | --- | --- | --- |
 | [`site-html-validate.yml`](.github/workflows/site-html-validate.yml) | Validate HTML syntax, structure and accessibility with html-validate | `pull_request`, `push` |
+| [`site-link-check.yml`](.github/workflows/site-link-check.yml) | Check links and asset references (images, scripts, audio) with lychee | `pull_request`, `push`, `schedule` |
 
 Examples: [`examples/site/`](examples/site)
 
