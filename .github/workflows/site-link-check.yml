@@ -1,0 +1,164 @@
+name: Link Check
+
+# Checks links and asset references (images, scripts, audio) in HTML and Markdown
+# files with lychee. Local links are resolved against the repository, external links
+# are requested over the network unless `offline` is set.
+# Callers typically use `pull_request`, `push` and a weekly `schedule`.
+# The release tarball is verified against the checksum published with the release.
+
+on:
+  workflow_call:
+    inputs:
+      paths:
+        description: "Files, directories or globs to scan, separated by spaces or newlines."
+        type: string
+        default: "**/*.html **/*.md"
+      offline:
+        description: "Check only local links and skip external URLs."
+        type: boolean
+        default: false
+      root-dir:
+        description: "Directory used to resolve root-relative links such as /assets/app.js, relative to working-directory."
+        type: string
+        default: .
+      exclude:
+        description: "Regular expressions of URLs to skip, one per line."
+        type: string
+        default: ""
+      exclude-path:
+        description: "Paths to skip, one per line."
+        type: string
+        default: ""
+      accept:
+        description: "Accepted HTTP status codes and ranges, comma-separated."
+        type: string
+        default: "200..=299,429"
+      include-fragments:
+        description: "Also verify #fragment anchors: none | anchor-only | text-only | full."
+        type: string
+        default: none
+      timeout:
+        description: "Request timeout in seconds."
+        type: number
+        default: 20
+      max-retries:
+        description: "Retries for failed requests."
+        type: number
+        default: 3
+      cache:
+        description: "Cache results between runs to avoid re-checking unchanged external links."
+        type: boolean
+        default: true
+      fail:
+        description: "Fail the job when broken links are found. When false they are only reported."
+        type: boolean
+        default: true
+      lychee-version:
+        description: "lychee version without the leading v."
+        type: string
+        default: "0.24.2"
+      working-directory:
+        description: "Directory in which the paths are resolved."
+        type: string
+        default: .
+
+permissions: {}
+
+jobs:
+  links:
+    name: Check links
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install lychee
+        working-directory: ${{ github.workspace }}
+        env:
+          VERSION: ${{ inputs.lychee-version }}
+        run: |
+          set -euo pipefail
+          target="lychee-x86_64-unknown-linux-gnu"
+          base="https://github.com/lycheeverse/lychee/releases/download/lychee-v${VERSION}"
+          dir="$(mktemp -d)"
+          curl -fsSL -o "${dir}/${target}.tar.gz" "${base}/${target}.tar.gz"
+          curl -fsSL -o "${dir}/${target}.tar.gz.sha256" "${base}/${target}.tar.gz.sha256"
+          (cd "$dir" && sha256sum --check "${target}.tar.gz.sha256")
+          tar -xzf "${dir}/${target}.tar.gz" -C "$dir" --strip-components=1 "${target}/lychee"
+          install -m 0755 "${dir}/lychee" "${RUNNER_TEMP}/lychee"
+
+      - name: Restore link cache
+        if: inputs.cache
+        uses: actions/cache@v6
+        with:
+          path: ${{ format('{0}/.lycheecache', inputs.working-directory) }}
+          key: lychee-${{ inputs.working-directory }}-${{ github.run_id }}
+          restore-keys: |
+            lychee-${{ inputs.working-directory }}-
+
+      - name: Check links
+        env:
+          PATHS: ${{ inputs.paths }}
+          OFFLINE: ${{ inputs.offline }}
+          ROOT_DIR: ${{ inputs.root-dir }}
+          EXCLUDE: ${{ inputs.exclude }}
+          EXCLUDE_PATH: ${{ inputs.exclude-path }}
+          ACCEPT: ${{ inputs.accept }}
+          FRAGMENTS: ${{ inputs.include-fragments }}
+          TIMEOUT: ${{ inputs.timeout }}
+          MAX_RETRIES: ${{ inputs.max-retries }}
+          CACHE: ${{ inputs.cache }}
+          FAIL: ${{ inputs.fail }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # Split the paths without letting the shell expand the globs.
+          set -f
+          read -ra paths <<< "$PATHS"
+          set +f
+
+          args=(
+            --no-progress
+            --root-dir "$(realpath "$ROOT_DIR")"
+            --accept "${ACCEPT// /}"
+            --timeout "$TIMEOUT"
+            --max-retries "$MAX_RETRIES"
+            "--include-fragments=${FRAGMENTS}"
+            --format markdown
+            --output "${RUNNER_TEMP}/lychee-report.md"
+          )
+          if [[ "$OFFLINE" == "true" ]]; then
+            args+=(--offline)
+          fi
+          if [[ "$CACHE" == "true" ]]; then
+            args+=(--cache --max-cache-age 1d)
+          fi
+          while IFS= read -r pattern; do
+            [[ -n "$pattern" ]] && args+=(--exclude "$pattern")
+          done <<< "$EXCLUDE"
+          while IFS= read -r pattern; do
+            [[ -n "$pattern" ]] && args+=(--exclude-path "$pattern")
+          done <<< "$EXCLUDE_PATH"
+
+          status=0
+          "${RUNNER_TEMP}/lychee" "${args[@]}" "${paths[@]}" || status=$?
+
+          if [[ -f "${RUNNER_TEMP}/lychee-report.md" ]]; then
+            {
+              echo '### Link check'
+              cat "${RUNNER_TEMP}/lychee-report.md"
+            } | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+
+          if [[ "$status" -ne 0 && "$FAIL" != "true" && "$status" -eq 2 ]]; then
+            echo "::warning::Broken links were found, not failing because fail is false"
+            exit 0
+          fi
+          exit "$status"
