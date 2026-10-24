@@ -57,6 +57,8 @@ Checks for static sites (for example GitHub Pages) that have no build step.
 | --- | --- | --- |
 | [`site-html-validate.yml`](.github/workflows/site-html-validate.yml) | Validate HTML syntax, structure and accessibility with html-validate | `pull_request`, `push` |
 | [`site-link-check.yml`](.github/workflows/site-link-check.yml) | Check links and asset references (images, scripts, audio) with lychee | `pull_request`, `push`, `schedule` |
+| [`site-smoke.yml`](.github/workflows/site-smoke.yml) | Serve the site and check that pages, manifest and service worker answer 200 | `pull_request`, `push` |
+| [`site-lighthouse.yml`](.github/workflows/site-lighthouse.yml) | Lighthouse CI scores for performance, accessibility, best practices and SEO | `pull_request`, `schedule` |
 
 Examples: [`examples/site/`](examples/site)
 

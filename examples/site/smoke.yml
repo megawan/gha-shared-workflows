@@ -1,0 +1,19 @@
+name: Smoke
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  smoke:
+    permissions:
+      contents: read
+    uses: OWNER/gha-shared-workflows/.github/workflows/site-smoke.yml@v1
+    with:
+      pages: |
+        /
+        /phonics/
+      files: |
+        /phonics/manifest.webmanifest
+        /phonics/sw.js
