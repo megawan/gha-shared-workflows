@@ -1,0 +1,128 @@
+name: Lighthouse
+
+# Runs Lighthouse CI against a static site served from a directory and fails when a
+# category score drops below its minimum. Covers performance, accessibility, best
+# practices and SEO. Needs no build step and no credentials.
+# Callers typically use `pull_request` and a weekly `schedule`.
+
+on:
+  workflow_call:
+    inputs:
+      directory:
+        description: "Directory served as the site root, relative to the repository root."
+        type: string
+        default: .
+      urls:
+        description: "URL paths to audit, separated by spaces or newlines. Empty audits every HTML file in the directory."
+        type: string
+        default: ""
+      min-performance:
+        description: "Minimum performance score from 0 to 1. Empty skips the assertion."
+        type: string
+        default: "0.8"
+      min-accessibility:
+        description: "Minimum accessibility score from 0 to 1. Empty skips the assertion."
+        type: string
+        default: "0.9"
+      min-best-practices:
+        description: "Minimum best-practices score from 0 to 1. Empty skips the assertion."
+        type: string
+        default: "0.9"
+      min-seo:
+        description: "Minimum SEO score from 0 to 1. Empty skips the assertion."
+        type: string
+        default: ""
+      runs:
+        description: "Number of runs per URL; the median is asserted."
+        type: number
+        default: 1
+      fail:
+        description: "Fail the job when a score is below its minimum. When false the scores are only reported."
+        type: boolean
+        default: true
+      lhci-version:
+        description: "@lhci/cli version."
+        type: string
+        default: "0.15.1"
+      node-version:
+        description: "Node.js version used to run Lighthouse CI."
+        type: string
+        default: "24"
+
+permissions: {}
+
+jobs:
+  lighthouse:
+    name: Lighthouse
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ inputs.node-version }}
+
+      - name: Audit
+        env:
+          DIRECTORY: ${{ inputs.directory }}
+          URLS: ${{ inputs.urls }}
+          MIN_PERFORMANCE: ${{ inputs.min-performance }}
+          MIN_ACCESSIBILITY: ${{ inputs.min-accessibility }}
+          MIN_BEST_PRACTICES: ${{ inputs.min-best-practices }}
+          MIN_SEO: ${{ inputs.min-seo }}
+          RUNS: ${{ inputs.runs }}
+          FAIL: ${{ inputs.fail }}
+          VERSION: ${{ inputs.lhci-version }}
+        run: |
+          set -euo pipefail
+
+          config="${RUNNER_TEMP}/lighthouserc.json"
+          jq -n \
+            --arg dir "$DIRECTORY" \
+            --arg urls "$URLS" \
+            --argjson runs "$RUNS" \
+            --arg perf "$MIN_PERFORMANCE" \
+            --arg a11y "$MIN_ACCESSIBILITY" \
+            --arg bp "$MIN_BEST_PRACTICES" \
+            --arg seo "$MIN_SEO" \
+            --arg level "$([[ "$FAIL" == "true" ]] && echo error || echo warn)" \
+            '
+            def assertion($name; $min):
+              if $min == "" then empty
+              else {key: ("categories:" + $name), value: [$level, {minScore: ($min | tonumber)}]} end;
+            {
+              ci: {
+                collect: ({
+                  staticDistDir: $dir,
+                  numberOfRuns: $runs,
+                  settings: {chromeFlags: "--no-sandbox --headless=new"}
+                } + (if $urls == "" then {} else
+                  {url: ($urls | split("\n") | map(split(" ")) | flatten | map(select(length > 0)) | map("http://localhost" + .))}
+                end)),
+                assert: {
+                  assertions: ([
+                    assertion("performance"; $perf),
+                    assertion("accessibility"; $a11y),
+                    assertion("best-practices"; $bp),
+                    assertion("seo"; $seo)
+                  ] | from_entries)
+                }
+              }
+            }' > "$config"
+
+          log="${RUNNER_TEMP}/lhci.log"
+          status=0
+          npx --yes "@lhci/cli@${VERSION}" autorun --config="$config" 2>&1 | tee "$log" || status=$?
+
+          {
+            echo '### Lighthouse'
+            echo '```'
+            sed -e 's/\x1b\[[0-9;]*m//g' "$log" | head -c 60000
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          exit "$status"

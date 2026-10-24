@@ -1,0 +1,104 @@
+name: Site Smoke
+
+# Serves a static site from a directory and checks that the listed pages answer
+# 200 with an HTML title and that the listed files (manifest, service worker, icons)
+# exist. Needs no build step and no credentials.
+# Callers typically use `pull_request` and `push` to the default branch.
+
+on:
+  workflow_call:
+    inputs:
+      pages:
+        description: "URL paths that must return 200 with a <title>, separated by spaces or newlines."
+        type: string
+        default: "/"
+      files:
+        description: "URL paths that must return 200 (manifest, service worker, icons), separated by spaces or newlines."
+        type: string
+        default: ""
+      directory:
+        description: "Directory served as the site root, relative to the repository root."
+        type: string
+        default: .
+      port:
+        description: "Local port used to serve the site."
+        type: number
+        default: 8080
+      python-version:
+        description: "Python version used for the static file server."
+        type: string
+        default: "3.13"
+
+permissions: {}
+
+jobs:
+  smoke:
+    name: Smoke test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Serve and check
+        env:
+          PAGES: ${{ inputs.pages }}
+          FILES: ${{ inputs.files }}
+          DIRECTORY: ${{ inputs.directory }}
+          PORT: ${{ inputs.port }}
+        run: |
+          set -euo pipefail
+
+          python -m http.server "$PORT" --bind 127.0.0.1 --directory "$DIRECTORY" \
+            > "${RUNNER_TEMP}/server.log" 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+
+          base="http://127.0.0.1:${PORT}"
+          for _ in $(seq 1 30); do
+            curl -fsS -o /dev/null "$base/" 2>/dev/null && break
+            sleep 1
+          done
+
+          failures=0
+          report="${RUNNER_TEMP}/smoke.md"
+          {
+            echo '### Smoke test'
+            echo '| Check | Path | Result |'
+            echo '| --- | --- | --- |'
+          } > "$report"
+
+          # One path per line; spaces also separate paths. Globs are never expanded.
+          split() { printf '%s\n' "$1" | tr -s '[:space:]' '\n' | sed '/^$/d'; }
+
+          while IFS= read -r path; do
+            body="${RUNNER_TEMP}/page.html"
+            code=$(curl -sS -o "$body" -w '%{http_code}' "${base}${path}" || true)
+            if [[ "$code" != "200" ]]; then
+              result="HTTP ${code:-000}"; failures=$((failures + 1))
+            elif ! grep -qiE '<title>[^<]+</title>' "$body"; then
+              result="no <title>"; failures=$((failures + 1))
+            else
+              result="ok"
+            fi
+            echo "| page | \`${path}\` | ${result} |" >> "$report"
+          done < <(split "$PAGES")
+
+          while IFS= read -r path; do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' "${base}${path}" || true)
+            if [[ "$code" == "200" ]]; then result="ok"; else result="HTTP ${code:-000}"; failures=$((failures + 1)); fi
+            echo "| file | \`${path}\` | ${result} |" >> "$report"
+          done < <(split "$FILES")
+
+          cat "$report" >> "$GITHUB_STEP_SUMMARY"
+          cat "$report"
+          if [[ "$failures" -gt 0 ]]; then
+            echo "::error::${failures} smoke check(s) failed"
+            exit 1
+          fi

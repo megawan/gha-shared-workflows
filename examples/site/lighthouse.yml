@@ -1,0 +1,20 @@
+name: Lighthouse
+
+on:
+  pull_request:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+jobs:
+  lighthouse:
+    permissions:
+      contents: read
+    uses: OWNER/gha-shared-workflows/.github/workflows/site-lighthouse.yml@v1
+    with:
+      urls: |
+        /index.html
+        /phonics/index.html
+      min-accessibility: "0.95"
+      # Scores vary between runners, so the weekly run only reports.
+      fail: ${{ github.event_name != 'schedule' }}
